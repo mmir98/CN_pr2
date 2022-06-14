@@ -32,12 +32,12 @@ func handler(w http.ResponseWriter, r *http.Request){
 	}
 
 	if r.URL.Path == notif_create_url && r.Method == "POST" {
-		create_new_notif(w, r)
+		create_new_notif(&w, r)
 		return
 	}
 
 	if r.URL.Path == notif_get_url && r.Method == "GET" {
-		retrieve_notifs(w, r)
+		retrieve_notifs(&w, r)
 		return
 	}
 
@@ -46,10 +46,10 @@ func handler(w http.ResponseWriter, r *http.Request){
 	w.Write([]byte(http.StatusText(http.StatusNotImplemented)))
 }
 
-func create_new_notif(w *http.ResponseWriter, r http.Request){
+func create_new_notif(w *http.ResponseWriter, r *http.Request){
 
 }
 
-func retrieve_notifs(w *http.ResponseWriter, r http.Request){
+func retrieve_notifs(w *http.ResponseWriter, r *http.Request){
 
 }
