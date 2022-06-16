@@ -12,9 +12,10 @@ type Notification struct {
 }
 
 var notification_list []Notification = make([]Notification, 0)
-
-const notif_create_url = "/notifs/add"
-const notif_get_url = "/notifs"
+const (
+	notif_create_url = "/notifs/add"
+	notif_get_url = "/notifs"
+)
 
 func main() {
 	http.HandleFunc("/", logger(handler))
