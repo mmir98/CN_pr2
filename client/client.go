@@ -107,7 +107,7 @@ func main() {
 			scanner.Scan()
 			text := scanner.Text()
 			log.Println("new notif created :\n\tauthor : " + author + "\n\ttext : " + text)
-			createAndSendNewNotif(author, text)
+			createAndSendNewNotif(author, text, vc_id, new_vc)
 		}
 		if input == "end" {
 			break
@@ -347,6 +347,58 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) []notification_struct 
 	return notifs
 }
 
-func createAndSendNewNotif(author string, text string) {
+func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc_nodes_struct) {
+	args := notification_struct {
+		Author: author,
+		Text: text,
+	}
+	args_json, err := json.Marshal(args)
+	if err != nil {
 
+	}
+	final_payload := final_payload_struct{
+		Method: POST_METHOD,
+		URL:    NOTIF_SERVER_CREATE_NEW_NOTIF_URL,
+		Body:   args_json,
+	}
+	json_payload, err := json.Marshal(final_payload)
+	if err != nil {
+
+	}
+	node_3_payload := relay_payload_struct{
+		VC_ID:        vc_id,
+		Payload_type: PAYLOAD_REQUEST_TYPE,
+		Payload:      json_payload,
+	}
+	json_node_3, err := json.Marshal(node_3_payload)
+	if err != nil {
+		log.Println(err)
+	}
+	node_2_payload := relay_payload_struct{
+		VC_ID:        vc_id,
+		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
+		Payload:      json_node_3,
+	}
+	json_node_2, err := json.Marshal(node_2_payload)
+	if err != nil {
+		log.Println(err)
+	}
+	node_1_payload := relay_payload_struct{
+		VC_ID:        vc_id,
+		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
+		Payload:      json_node_2,
+	}
+	json_node_1, err := json.Marshal(node_1_payload)
+	if err != nil {
+		log.Println(err)
+	}
+	log.Println(string(json_node_1))
+	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
+	if err != nil {
+		log.Println(err)
+		
+	}
+	defer resp.Body.Close()
+	log.Println(resp.StatusCode)
+	
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io/ioutil"
 	"log"
 	"net/http"
 )
@@ -59,12 +60,21 @@ func handler(w http.ResponseWriter, r *http.Request){
 
 // * Create new Notif handler
 func create_new_notif(w http.ResponseWriter, r *http.Request){
-	var author string = r.FormValue("author")
-	var text string = r.FormValue("text")
+	// var author string = r.FormValue("author")
+	// var text string = r.FormValue("text")
 
-	newNotif := Notification{
-		Author: author,
-		Text: text,
+	// newNotif := Notification{
+	// 	Author: author,
+	// 	Text: text,
+	// }
+	var newNotif Notification
+	json_body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		
+	}
+	defer r.Body.Close()
+	if err := json.Unmarshal(json_body, &newNotif); err != nil {
+		
 	}
 	notification_list = append(notification_list, newNotif)
 	log.Println("New notif created : ",  newNotif)
