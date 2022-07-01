@@ -50,8 +50,8 @@ var circuits = make([]vc, 0)
 
 func main() {
 	node_info := node{
-		name:           "node 3",
-		port:           13000,
+		name:           "node 1",
+		port:           11000,
 		directory_name: "9090",
 	}
 
