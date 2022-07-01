@@ -17,6 +17,7 @@ const (
 	NOTIF_SERVER_GET_NOTIFS_URL       = "http://localhost:8080/notifs"
 	NOTIF_SERVER_CREATE_NEW_NOTIF_URL = "http://localhost:8080/notifs/add"
 	NODE_DIRECTORRY_GET_RELAYS_URL    = "http://localhost:9090/nodes"
+	NODE_DIRECTORRY_SELECT_RELAYS_URL    = "http://localhost:9090/nodes/select"
 
 	PAYLOAD_ENCRYPTED_TYPE = "ENC"
 	PAYLOAD_REQUEST_TYPE   = "REQ"
@@ -52,9 +53,9 @@ type relay_node_struct struct {
 }
 
 type vc_nodes_struct struct {
-	entry_node  relay_node_struct
-	middle_node relay_node_struct
-	exit_node   relay_node_struct
+	Entry_node  relay_node_struct	`json:"entry_node"`
+	Middle_node relay_node_struct	`json:"middle_node"`
+	Exit_node   relay_node_struct	`json:"exit_node"`
 }
 
 func main() {
@@ -66,23 +67,27 @@ func main() {
 	}
 	selected_nodes := getSelectedRelays(nodes)
 	new_vc := vc_nodes_struct{
-		entry_node:  selected_nodes[0],
-		middle_node: selected_nodes[1],
-		exit_node:   selected_nodes[2],
+		Entry_node:  selected_nodes[0],
+		Middle_node: selected_nodes[1],
+		Exit_node:   selected_nodes[2],
 	}
-	vc_id := "123456"
-	vc_w_entry := create_vc_with_entry_node(vc_id, new_vc.entry_node)
+	vc_id, err := sendSelectedNodesAndGetVCID(new_vc)
+	if err != nil {
+		log.Println("Cant aquire a new vc_id : " + err.Error())
+	}
+	log.Println("New vc_id aquired : " + vc_id)
+	vc_w_entry := create_vc_with_entry_node(vc_id, new_vc.Entry_node)
 	if vc_w_entry == false {
-
+		log.Println("Cant create vc with entry node.")
 	}
-	vc_w_middle := extend_vc_with_middle_node(vc_id, new_vc.middle_node, new_vc.entry_node)
+	vc_w_middle := extend_vc_with_middle_node(vc_id, new_vc.Middle_node, new_vc.Entry_node)
 	if vc_w_middle == false {
-
+		log.Println("Cant extend vc with middle node.")
 	}
 	log.Println("extending with middle node was successful")
-	vc_w_exit := extend_vc_with_exit_node(vc_id, new_vc.exit_node, new_vc.middle_node, new_vc.entry_node)
+	vc_w_exit := extend_vc_with_exit_node(vc_id, new_vc.Exit_node, new_vc.Middle_node, new_vc.Entry_node)
 	if vc_w_exit == false {
-
+		log.Println("Cant extend vc with exit node.")
 	}
 	log.Println("extending vc with exit node was successful")
 	scanner := bufio.NewScanner(os.Stdin)
@@ -161,6 +166,23 @@ func getSelectedRelays(nodes []relay_node_struct) []relay_node_struct {
 	}
 
 	return n
+}
+
+func sendSelectedNodesAndGetVCID(vc_nodes vc_nodes_struct) (string, error){
+	json_body, err := json.Marshal(vc_nodes)
+	if err != nil {
+		return "", err
+	}
+	res, err := http.Post(NODE_DIRECTORRY_SELECT_RELAYS_URL, "application/json", bytes.NewBuffer(json_body))
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
 }
 
 func create_vc_with_entry_node(vc_id string, node relay_node_struct) bool {
@@ -313,7 +335,7 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct
 		return nil, err
 	}
 	// log.Println(string(json_node_1))
-	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
+	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.Entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +403,7 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 		return false
 	}
 	// log.Println(string(json_node_1))
-	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
+	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.Entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
 		log.Println("Cant post newNotif msg. err : " + err.Error())
 		return false

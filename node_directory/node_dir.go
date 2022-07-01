@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 )
 
 type node struct {
@@ -13,16 +14,23 @@ type node struct {
 	Directory_node string	`json:"dir_node"`
 }
 
+type vc_id_counter struct {
+	sync.Mutex
+	vc_id int
+}
+var vc_c_lock vc_id_counter
 var online_nodes_list []node = make([]node, 0)
 const (
 	NODE_ONLINE = "/nodes/add"
 	NODE_OFFLINE = "/nodes/remove"
 	NODE_LIST = "/nodes"
+	NODE_SELECT = "/nodes/select"
 	POST_METHOD = "POST"
 	GET_METHOD = "GET"
 )
 
 func main() {
+	vc_c_lock = vc_id_counter{vc_id: 0}
 	http.Handle("/", logger(handler))
 
 	log.Println("Node-dir running on port 9090 ...")
@@ -38,7 +46,7 @@ func logger (f http.HandlerFunc) http.HandlerFunc {
 
 func handler(w http.ResponseWriter, r *http.Request){
 	// url not found
-	if r.URL.Path != NODE_OFFLINE && r.URL.Path != NODE_ONLINE && r.URL.Path != NODE_LIST {
+	if r.URL.Path != NODE_OFFLINE && r.URL.Path != NODE_ONLINE && r.URL.Path != NODE_LIST && r.URL.Path != NODE_SELECT{
 		http.NotFound(w, r)
 		return
 	}
@@ -52,6 +60,10 @@ func handler(w http.ResponseWriter, r *http.Request){
 	}
 	if r.URL.Path == NODE_LIST && r.Method == GET_METHOD {
 		retrieve_nodes(w, r)
+		return
+	}
+	if r.URL.Path == NODE_SELECT && r.Method == POST_METHOD {
+		vc_c_lock.select_node(w, r)
 		return
 	}
 
@@ -114,3 +126,13 @@ func retrieve_nodes (w http.ResponseWriter, r *http.Request) {
 	w.Write(res)
 }
 
+func (vc_c *vc_id_counter) select_node (w http.ResponseWriter, r *http.Request) {
+	vc_c.Lock()
+	defer vc_c.Unlock()
+	log.Println("Sending VC_id : " + strconv.Itoa(vc_c.vc_id))
+	var sending_vc int = vc_c.vc_id
+	vc_c.vc_id = (vc_c.vc_id + 1) % 10000
+	
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(strconv.Itoa(sending_vc)))
+}
