@@ -92,8 +92,14 @@ func main() {
 		input := scanner.Text()
 		// Get all notifs
 		if input == "1" {
-			notifs := getAllNotifs(vc_id, new_vc)
+			notifs, err := getAllNotifs(vc_id, new_vc)
+			if err != nil {
+				log.Println("Cant get notif list from server. err : " + err.Error())
+			}
 			fmt.Println("Notif list on server : ")
+			if len(notifs) == 0 {
+				fmt.Println("notif-list is empty.")
+			}
 			for i := 0; i < len(notifs); i++ {
 				fmt.Printf("\n\t%d. Author : %s\n\tText : %s", i+1, notifs[i].Author, notifs[i].Text)
 			}
@@ -107,36 +113,15 @@ func main() {
 			scanner.Scan()
 			text := scanner.Text()
 			log.Println("new notif created :\n\tauthor : " + author + "\n\ttext : " + text)
-			createAndSendNewNotif(author, text, vc_id, new_vc)
+			res := createAndSendNewNotif(author, text, vc_id, new_vc)
+			if res == true {
+				log.Println("New notif has been added to notif_server's list.")
+			}
 		}
 		if input == "end" {
 			break
 		}
 	}
-
-	// final_payload := final_payload_struct{
-	// 	Method: GET_METHOD,
-	// 	URL:    NOTIF_SERVER_GET_NOTIFS_URL,
-	// }
-	// json_payload, err := json.Marshal(final_payload)
-	// if err != nil {
-
-	// }
-	// relay_3_payload := relay_payload_struct{
-	// 	VC_ID:        "1000",
-	// 	Payload_type: PAYLOAD_REQUEST_TYPE,
-	// 	Payload:      json_payload,
-	// }
-	// json_relay_3, err := json.Marshal(relay_3_payload)
-	// if err != nil {
-
-	// }
-	// resp, err := http.Post("http://localhost:10000/it-is-working", "application/json", bytes.NewBuffer(json_relay_3))
-	// if err != nil {
-
-	// }
-	// defer resp.Body.Close()
-	// log.Println(resp.StatusCode)
 
 }
 
@@ -290,14 +275,14 @@ func extend_vc_with_exit_node(vc_id string, exit_node relay_node_struct, middle_
 	return true
 }
 
-func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) []notification_struct {
+func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct, error) {
 	final_payload := final_payload_struct{
 		Method: GET_METHOD,
 		URL:    NOTIF_SERVER_GET_NOTIFS_URL,
 	}
 	json_payload, err := json.Marshal(final_payload)
 	if err != nil {
-
+		return nil, err
 	}
 	node_3_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -306,7 +291,7 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) []notification_struct 
 	}
 	json_node_3, err := json.Marshal(node_3_payload)
 	if err != nil {
-		log.Println(err)
+		return nil, err
 	}
 	node_2_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -315,8 +300,8 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) []notification_struct 
 	}
 	json_node_2, err := json.Marshal(node_2_payload)
 	if err != nil {
-		log.Println(err)
-		
+		return nil, err
+
 	}
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -325,36 +310,35 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) []notification_struct 
 	}
 	json_node_1, err := json.Marshal(node_1_payload)
 	if err != nil {
-		log.Println(err)
-		
+		return nil, err
 	}
-	log.Println(string(json_node_1))
+	// log.Println(string(json_node_1))
 	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
-		log.Println(err)
-		
+		return nil, err
 	}
 	defer resp.Body.Close()
 	log.Println(resp.StatusCode)
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		
+		return nil, err
 	}
 	var notifs []notification_struct
 	if err := json.Unmarshal(body, &notifs); err != nil {
-
+		return nil, err
 	}
-	return notifs
+	return notifs, nil
 }
 
-func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc_nodes_struct) {
-	args := notification_struct {
+func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc_nodes_struct) bool {
+	args := notification_struct{
 		Author: author,
-		Text: text,
+		Text:   text,
 	}
 	args_json, err := json.Marshal(args)
 	if err != nil {
-
+		log.Println("Cant marshal args. err : " + err.Error())
+		return false
 	}
 	final_payload := final_payload_struct{
 		Method: POST_METHOD,
@@ -363,7 +347,8 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 	}
 	json_payload, err := json.Marshal(final_payload)
 	if err != nil {
-
+		log.Println("Cant marshal final_payload. err : " + err.Error())
+		return false
 	}
 	node_3_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -372,7 +357,8 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 	}
 	json_node_3, err := json.Marshal(node_3_payload)
 	if err != nil {
-		log.Println(err)
+		log.Println("Cant marshal node_3_payload. err : " + err.Error())
+		return false
 	}
 	node_2_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -381,7 +367,8 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 	}
 	json_node_2, err := json.Marshal(node_2_payload)
 	if err != nil {
-		log.Println(err)
+		log.Println("Cant marshal node_2_payload. err : " + err.Error())
+		return false
 	}
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -390,15 +377,19 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 	}
 	json_node_1, err := json.Marshal(node_1_payload)
 	if err != nil {
-		log.Println(err)
+		log.Println("Cant marshal node_1_payload. err : " + err.Error())
+		return false
 	}
-	log.Println(string(json_node_1))
+	// log.Println(string(json_node_1))
 	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
-		log.Println(err)
-		
+		log.Println("Cant post newNotif msg. err : " + err.Error())
+		return false
 	}
 	defer resp.Body.Close()
-	log.Println(resp.StatusCode)
-	
+	log.Println("response statusCode for newNotif request. Response status : " + resp.Status)
+	if resp.StatusCode != http.StatusCreated {
+		return false
+	}
+	return true
 }
