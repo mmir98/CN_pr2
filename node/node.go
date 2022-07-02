@@ -2,8 +2,13 @@ package main
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/big"
@@ -41,6 +46,25 @@ type node struct {
 	directory_name string
 }
 
+type final_payload_struct struct {
+	Method string
+	URL    string
+	Body   []byte
+}
+
+type payload_struct struct {
+	VC_id        string
+	Payload_type string
+	Payload      []byte
+}
+
+type new_vc_struct struct {
+	VC_id          string
+	incomming_port int
+	P              *big.Int
+	G              *big.Int
+	G_a_mod_p      *big.Int
+}
 type vc struct {
 	id        string
 	key       *big.Int
@@ -140,7 +164,7 @@ func create_new_vc(w http.ResponseWriter, r *http.Request) {
 	log.Println("creating new vc with vc_id : " + request.VC_id)
 	b, err := rand.Int(rand.Reader, request.P)
 	if err != nil {
-		
+
 	}
 	g_b_mod_p := new(big.Int)
 	g_b_mod_p.Exp(request.G, b, request.P)
@@ -151,7 +175,7 @@ func create_new_vc(w http.ResponseWriter, r *http.Request) {
 	newVC := vc{
 		id:       request.VC_id,
 		pre_node: node{port: request.incomming_port},
-		key: key,
+		key:      key,
 	}
 	circuits = append(circuits, newVC)
 
@@ -166,15 +190,27 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-	log.Println(string(json_body))
+	// log.Println(string(json_body))
 	var request payload_struct
 	if err := json.Unmarshal(json_body, &request); err != nil {
 
 	}
 	log.Println("forwading msg with vc_id : " + request.VC_id + " and payload_type : " + request.Payload_type)
+	var circuit_index int
+	for i := 0; i < len(circuits); i++ {
+		if circuits[i].id == request.VC_id {
+			circuit_index = i
+			break
+		}
+	}
+	log.Println(request.Payload)
+	decrypted_payload := AES_decryptor(circuits[circuit_index].key.Bytes(), string(request.Payload))
+	if err != nil {
+		log.Println(err)
+	}
 	if request.Payload_type == PAYLOAD_REQUEST_TYPE {
 		var final_payload final_payload_struct
-		err := json.Unmarshal([]byte(request.Payload), &final_payload)
+		err := json.Unmarshal([]byte(decrypted_payload), &final_payload)
 		if err != nil {
 			log.Println("error occured while trying to decode final_payload. err : " + err.Error())
 
@@ -209,8 +245,9 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 
 			}
 			log.Println(res.StatusCode)
+			encrypted_body := AES_encryptor(circuits[circuit_index].key.Bytes(), string(body))
 			w.WriteHeader(res.StatusCode)
-			w.Write(body)
+			w.Write([]byte(encrypted_body))
 		}
 		if final_payload.Method == POST_METHOD {
 			res, err := http.Post(final_payload.URL, "application/json", bytes.NewBuffer(final_payload.Body))
@@ -220,8 +257,9 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 			defer res.Body.Close()
 			body, err := ioutil.ReadAll(res.Body)
 			log.Println("response status code of post request : " + res.Status)
+			encrypted_body := AES_encryptor(circuits[circuit_index].key.Bytes(), string(body))
 			w.WriteHeader(res.StatusCode)
-			w.Write(body)
+			w.Write([]byte(encrypted_body))
 		}
 		return
 	}
@@ -233,7 +271,7 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		resp, err := http.Post("http://localhost:"+strconv.Itoa(circuits[cir_index].next_node.port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(request.Payload))
+		resp, err := http.Post("http://localhost:"+strconv.Itoa(circuits[cir_index].next_node.port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer([]byte(decrypted_payload)))
 		if err != nil {
 
 		}
@@ -242,28 +280,48 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 
 		}
+		encrypted_body := AES_encryptor(circuits[cir_index].key.Bytes(), string(body))
 		w.WriteHeader(resp.StatusCode)
-		w.Write(body)
+		w.Write([]byte(encrypted_body))
 	}
 
 }
 
-type final_payload_struct struct {
-	Method string
-	URL    string
-	Body   []byte
+func AES_encryptor(key []byte, stringToEncrypt string) (encryptedString string) {
+	plaintext := []byte(stringToEncrypt)
+
+	c, err := aes.NewCipher(key)
+	if err != nil {
+		panic(err.Error())
+	}
+	aesGCM, err := cipher.NewGCM(c)
+	if err != nil {
+		panic(err.Error())
+	}
+	nonce := make([]byte, aesGCM.NonceSize())
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		panic(err.Error())
+	}
+	ciphertext := aesGCM.Seal(nonce, nonce, plaintext, nil)
+	return fmt.Sprintf("%x", ciphertext)
 }
 
-type payload_struct struct {
-	VC_id        string
-	Payload_type string
-	Payload      []byte
-}
+func AES_decryptor(key []byte, encryptedString string) (decryptedString string) {
+	enc, _ := hex.DecodeString(encryptedString)
 
-type new_vc_struct struct {
-	VC_id          string
-	incomming_port int
-	P              *big.Int
-	G              *big.Int
-	G_a_mod_p      *big.Int
+	c, err := aes.NewCipher(key)
+	if err != nil {
+		panic(err.Error())
+	}
+	aesGCM, err := cipher.NewGCM(c)
+	if err != nil {
+		panic(err.Error())
+	}
+	nonceSize := aesGCM.NonceSize()
+	nonce, ciphertext := enc[:nonceSize], enc[nonceSize:]
+	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		panic(err.Error())
+	}
+	return fmt.Sprintf("%s", plaintext)
 }

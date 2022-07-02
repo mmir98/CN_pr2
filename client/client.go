@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/big"
@@ -78,20 +81,24 @@ func main() {
 	vc_id, err := sendSelectedNodesAndGetVCID(new_vc)
 	if err != nil {
 		log.Println("Cant aquire a new vc_id : " + err.Error())
+		return
 	}
 	log.Println("New vc_id aquired : " + vc_id)
-	vc_w_entry := create_vc_with_entry_node(vc_id, new_vc.Entry_node)
+	vc_w_entry := create_vc_with_entry_node(vc_id, &new_vc.Entry_node)
 	if vc_w_entry == false {
 		log.Println("Cant create vc with entry node.")
+		return
 	}
-	vc_w_middle := extend_vc_with_middle_node(vc_id, new_vc.Middle_node, new_vc.Entry_node)
+	vc_w_middle := extend_vc_with_middle_node(vc_id, &new_vc.Middle_node, new_vc.Entry_node)
 	if vc_w_middle == false {
 		log.Println("Cant extend vc with middle node.")
+		return
 	}
 	log.Println("extending with middle node was successful")
-	vc_w_exit := extend_vc_with_exit_node(vc_id, new_vc.Exit_node, new_vc.Middle_node, new_vc.Entry_node)
+	vc_w_exit := extend_vc_with_exit_node(vc_id, &new_vc.Exit_node, &new_vc.Middle_node, new_vc.Entry_node)
 	if vc_w_exit == false {
 		log.Println("Cant extend vc with exit node.")
+		return
 	}
 	log.Println("extending vc with exit node was successful")
 	scanner := bufio.NewScanner(os.Stdin)
@@ -189,7 +196,7 @@ func sendSelectedNodesAndGetVCID(vc_nodes vc_nodes_struct) (string, error) {
 	return string(body), nil
 }
 
-func create_vc_with_entry_node(vc_id string, node relay_node_struct) bool {
+func create_vc_with_entry_node(vc_id string, node *relay_node_struct) bool {
 	p, g, a, g_a_mod_p := initializeValuesForDiffi_Hellman()
 	args := new_vc_struct{
 		VC_id:     vc_id,
@@ -218,12 +225,13 @@ func create_vc_with_entry_node(vc_id string, node relay_node_struct) bool {
 	key := new(big.Int)
 	key.Exp(g_b_mod_p, a, p)
 	node.Key = key
-	log.Println(key)
+	// log.Println(key)
+	log.Println("Entry node secret key : " + node.Key.String())
 	return true
 }
 
 func initializeValuesForDiffi_Hellman() (*big.Int, *big.Int, *big.Int, *big.Int) {
-	p, err := rand.Prime(rand.Reader, 64)
+	p, err := rand.Prime(rand.Reader, 256)
 	if err != nil {
 		log.Println("Cant create prime rand number. err : " + err.Error())
 	}
@@ -240,14 +248,14 @@ func initializeValuesForDiffi_Hellman() (*big.Int, *big.Int, *big.Int, *big.Int)
 	return p, g, a, g_a_mod_p
 }
 
-func extend_vc_with_middle_node(vc_id string, middle_node relay_node_struct, entry_node relay_node_struct) bool {
+func extend_vc_with_middle_node(vc_id string, middle_node *relay_node_struct, entry_node relay_node_struct) bool {
 	p, g, a, g_a_mod_p := initializeValuesForDiffi_Hellman()
 	args := new_vc_struct{
 		VC_id:          vc_id,
 		Incomming_port: entry_node.Port,
-		P: p,
-		G: g,
-		G_A_MOD_P: g_a_mod_p,
+		P:              p,
+		G:              g,
+		G_A_MOD_P:      g_a_mod_p,
 	}
 	args_json, err := json.Marshal(args)
 	if err != nil {
@@ -262,19 +270,23 @@ func extend_vc_with_middle_node(vc_id string, middle_node relay_node_struct, ent
 	if err != nil {
 
 	}
+	// log.Println(json_payload)
+	// log.Println(string(json_payload))
+	encrypted_node_1_payload := AES_encryptor(entry_node.Key.Bytes(), string(json_payload))
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_REQUEST_TYPE,
-		Payload:      json_payload,
+		Payload:      []byte(encrypted_node_1_payload),
 	}
 	json_node_1, err := json.Marshal(node_1_payload)
 	if err != nil {
 		log.Println(err)
 		return false
 	}
-	encrypted_node_1_json := AES_encryptor(entry_node.Key.Bytes(), json_node_1)
-	// log.Println(string(json_node_1))
-	resp, err := http.Post("http://localhost:"+strconv.Itoa(entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(encrypted_node_1_json))
+
+	log.Println(string(encrypted_node_1_payload))
+	log.Println(json_node_1)
+	resp, err := http.Post("http://localhost:"+strconv.Itoa(entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
 		log.Println(err)
 		return false
@@ -288,13 +300,13 @@ func extend_vc_with_middle_node(vc_id string, middle_node relay_node_struct, ent
 	if err != nil {
 		return false
 	}
-	decrypted_body := AES_decryptor(entry_node.Key.Bytes(), body)
+	decrypted_body := AES_decryptor(entry_node.Key.Bytes(), string(body))
 	g_b_mod_p := new(big.Int)
-	g_b_mod_p.SetBytes(decrypted_body)
+	g_b_mod_p.SetBytes([]byte(decrypted_body))
 	key := new(big.Int)
 	key.Exp(g_b_mod_p, a, p)
 	middle_node.Key = key
-	log.Println(key)
+	log.Println("Middle node secret key : " + middle_node.Key.String())
 	return true
 }
 
@@ -306,14 +318,14 @@ type new_vc_struct struct {
 	G_A_MOD_P      *big.Int `json:"g_a_mod_p"`
 }
 
-func extend_vc_with_exit_node(vc_id string, exit_node relay_node_struct, middle_node relay_node_struct, entry_node relay_node_struct) bool {
+func extend_vc_with_exit_node(vc_id string, exit_node *relay_node_struct, middle_node *relay_node_struct, entry_node relay_node_struct) bool {
 	p, g, a, g_a_mod_p := initializeValuesForDiffi_Hellman()
 	args := new_vc_struct{
 		VC_id:          vc_id,
 		Incomming_port: middle_node.Port,
-		P: p,
-		G: g,
-		G_A_MOD_P: g_a_mod_p,
+		P:              p,
+		G:              g,
+		G_A_MOD_P:      g_a_mod_p,
 	}
 	args_json, err := json.Marshal(args)
 	if err != nil {
@@ -328,30 +340,32 @@ func extend_vc_with_exit_node(vc_id string, exit_node relay_node_struct, middle_
 	if err != nil {
 
 	}
+
+	encrypted_node_2_payload := AES_encryptor(middle_node.Key.Bytes(), string(json_payload))
 	node_2_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_REQUEST_TYPE,
-		Payload:      json_payload,
+		Payload:      []byte(encrypted_node_2_payload),
 	}
 	json_node_2, err := json.Marshal(node_2_payload)
 	if err != nil {
 		log.Println(err)
 		return false
 	}
-	encrypted_node_2_json := AES_encryptor(middle_node.Key.Bytes(), json_node_2)
+	encrypted_node_1_payload := AES_encryptor(entry_node.Key.Bytes(), string(json_node_2))
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
-		Payload:      encrypted_node_2_json,
+		Payload:      []byte(encrypted_node_1_payload),
 	}
 	json_node_1, err := json.Marshal(node_1_payload)
 	if err != nil {
 		log.Println(err)
 		return false
 	}
-	encrypted_node_1_json := AES_encryptor(entry_node.Key.Bytes(), json_node_1)
+
 	// log.Println(string(json_node_1))
-	resp, err := http.Post("http://localhost:"+strconv.Itoa(entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(encrypted_node_1_json))
+	resp, err := http.Post("http://localhost:"+strconv.Itoa(entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
 		log.Println(err)
 		return false
@@ -365,10 +379,10 @@ func extend_vc_with_exit_node(vc_id string, exit_node relay_node_struct, middle_
 	if err != nil {
 		return false
 	}
-	node_1_decrypted_body := AES_decryptor(entry_node.Key.Bytes(), body)
-	node_2_decrypted_body := AES_decryptor(middle_node.Key.Bytes(), node_1_decrypted_body)
+	node_1_decrypted_body := AES_decryptor(entry_node.Key.Bytes(), string(body))
+	node_2_decrypted_body := AES_decryptor(middle_node.Key.Bytes(), string(node_1_decrypted_body))
 	g_b_mod_p := new(big.Int)
-	g_b_mod_p.SetBytes(node_2_decrypted_body)
+	g_b_mod_p.SetBytes([]byte(node_2_decrypted_body))
 	key := new(big.Int)
 	key.Exp(g_b_mod_p, a, p)
 	exit_node.Key = key
@@ -385,39 +399,40 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct
 	if err != nil {
 		return nil, err
 	}
+	encrypted_node_3_payload := AES_encryptor(vc_nodes.Exit_node.Key.Bytes(), string(json_payload))
 	node_3_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_REQUEST_TYPE,
-		Payload:      json_payload,
+		Payload:      []byte(encrypted_node_3_payload),
 	}
 	json_node_3, err := json.Marshal(node_3_payload)
 	if err != nil {
 		return nil, err
 	}
-	encrypted_node_3_json := AES_encryptor(vc_nodes.Exit_node.Key.Bytes(), json_node_3)
+	encrypted_node_2_payload := AES_encryptor(vc_nodes.Middle_node.Key.Bytes(), string(json_node_3))
 	node_2_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
-		Payload:      encrypted_node_3_json,
+		Payload:      []byte(encrypted_node_2_payload),
 	}
 	json_node_2, err := json.Marshal(node_2_payload)
 	if err != nil {
 		return nil, err
 
 	}
-	encrypted_node_2_json := AES_encryptor(vc_nodes.Middle_node.Key.Bytes(), json_node_2)
+	encrypted_node_1_payload := AES_encryptor(vc_nodes.Entry_node.Key.Bytes(), string(json_node_2))
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
-		Payload:      encrypted_node_2_json,
+		Payload:      []byte(encrypted_node_1_payload),
 	}
 	json_node_1, err := json.Marshal(node_1_payload)
 	if err != nil {
 		return nil, err
 	}
 	// log.Println(string(json_node_1))
-	encrypted_node_1_json := AES_encryptor(vc_nodes.Entry_node.Key.Bytes(), json_node_1)
-	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.Entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(encrypted_node_1_json))
+
+	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.Entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
 		return nil, err
 	}
@@ -427,11 +442,11 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct
 	if err != nil {
 		return nil, err
 	}
-	node_1_decrypted_body := AES_decryptor(vc_nodes.Entry_node.Key.Bytes(), body)
-	node_2_decrypted_body := AES_decryptor(vc_nodes.Middle_node.Key.Bytes(), node_1_decrypted_body)
-	node_3_decrypted_body := AES_decryptor(vc_nodes.Exit_node.Key.Bytes(), node_2_decrypted_body)
+	node_1_decrypted_body := AES_decryptor(vc_nodes.Entry_node.Key.Bytes(), string(body))
+	node_2_decrypted_body := AES_decryptor(vc_nodes.Middle_node.Key.Bytes(), string(node_1_decrypted_body))
+	node_3_decrypted_body := AES_decryptor(vc_nodes.Exit_node.Key.Bytes(), string(node_2_decrypted_body))
 	var notifs []notification_struct
-	if err := json.Unmarshal(node_3_decrypted_body, &notifs); err != nil {
+	if err := json.Unmarshal([]byte(node_3_decrypted_body), &notifs); err != nil {
 		return nil, err
 	}
 	return notifs, nil
@@ -457,41 +472,41 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 		log.Println("Cant marshal final_payload. err : " + err.Error())
 		return false
 	}
+	encrypted_node_3_payload := AES_encryptor(vc_nodes.Exit_node.Key.Bytes(), string(json_payload))
 	node_3_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_REQUEST_TYPE,
-		Payload:      json_payload,
+		Payload:      []byte(encrypted_node_3_payload),
 	}
 	json_node_3, err := json.Marshal(node_3_payload)
 	if err != nil {
 		log.Println("Cant marshal node_3_payload. err : " + err.Error())
 		return false
 	}
-	encrypted_node_3_json := AES_encryptor(vc_nodes.Exit_node.Key.Bytes(), json_node_3)
+	encrypted_node_2_payload := AES_encryptor(vc_nodes.Middle_node.Key.Bytes(), string(json_node_3))
 	node_2_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
-		Payload:      encrypted_node_3_json,
+		Payload:      []byte(encrypted_node_2_payload),
 	}
 	json_node_2, err := json.Marshal(node_2_payload)
 	if err != nil {
 		log.Println("Cant marshal node_2_payload. err : " + err.Error())
 		return false
 	}
-	encrypted_node_2_json := AES_encryptor(vc_nodes.Middle_node.Key.Bytes(), json_node_2)
+	encrypted_node_1_payload := AES_encryptor(vc_nodes.Entry_node.Key.Bytes(), string(json_node_2))
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
-		Payload:      encrypted_node_2_json,
+		Payload:      []byte(encrypted_node_1_payload),
 	}
 	json_node_1, err := json.Marshal(node_1_payload)
 	if err != nil {
 		log.Println("Cant marshal node_1_payload. err : " + err.Error())
 		return false
 	}
-	encrypted_node_1_json := AES_encryptor(vc_nodes.Entry_node.Key.Bytes(), json_node_1)
 	// log.Println(string(json_node_1))
-	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.Entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(encrypted_node_1_json))
+	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.Entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
 		log.Println("Cant post newNotif msg. err : " + err.Error())
 		return false
@@ -504,24 +519,41 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 	return true
 }
 
-func AES_encryptor (key []byte, encryptee []byte) []byte{
-	cipher, err := aes.NewCipher(key)
+func AES_encryptor(key []byte, stringToEncrypt string) (encryptedString string) {
+	plaintext := []byte(stringToEncrypt)
+
+	c, err := aes.NewCipher(key)
 	if err != nil {
-		
+		panic(err.Error())
 	}
-	encrypted_bytes := make([]byte, len(encryptee))
-	cipher.Encrypt(encrypted_bytes, encryptee)
-	return encrypted_bytes
+	aesGCM, err := cipher.NewGCM(c)
+	if err != nil {
+		panic(err.Error())
+	}
+	nonce := make([]byte, aesGCM.NonceSize())
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		panic(err.Error())
+	}
+	ciphertext := aesGCM.Seal(nonce, nonce, plaintext, nil)
+	return fmt.Sprintf("%x", ciphertext)
 }
 
-func AES_decryptor (key []byte, encrypted_bytes []byte) []byte{
-	cipher, err := aes.NewCipher(key)
+func AES_decryptor(key []byte, encryptedString string) (decryptedString string) {
+	enc, _ := hex.DecodeString(encryptedString)
+
+	c, err := aes.NewCipher(key)
 	if err != nil {
-		
+		panic(err.Error())
 	}
-
-	decrypted_bytes := make([]byte, len(encrypted_bytes))
-	cipher.Decrypt(decrypted_bytes, encrypted_bytes)
-
-	return decrypted_bytes
+	aesGCM, err := cipher.NewGCM(c)
+	if err != nil {
+		panic(err.Error())
+	}
+	nonceSize := aesGCM.NonceSize()
+	nonce, ciphertext := enc[:nonceSize], enc[nonceSize:]
+	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		panic(err.Error())
+	}
+	return fmt.Sprintf("%s", plaintext)
 }
