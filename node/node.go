@@ -335,5 +335,5 @@ func AES_decryptor(key []byte, encryptedString string) (decryptedString string) 
 	if err != nil {
 		log.Panicln(err.Error())
 	}
-	return fmt.Sprintf("%s", plaintext)
+	return string(plaintext)
 }
