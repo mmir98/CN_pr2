@@ -158,20 +158,20 @@ func getRelayNodes() []relay_node_struct {
 	log.Println("Sending Get request to dir_node...")
 	resp, err := http.Get(LOCAL_HOST_URL + node_dir_port_number + NODE_DIRECTORRY_GET_RELAYS_URL)
 	if err != nil {
-
+		log.Panicln(err.Error())
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-
+		log.Panicln(resp.Status)
 	}
 	nodes_json_list, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-
+		log.Panicln(err.Error())
 	}
 	var nodes []relay_node_struct
 	json_err := json.Unmarshal(nodes_json_list, &nodes)
 	if json_err != nil {
-
+		log.Panicln(json_err.Error())
 	}
 
 	return nodes
@@ -219,10 +219,11 @@ func create_vc_with_entry_node(vc_id string, node *relay_node_struct) bool {
 	}
 	json_body, err := json.Marshal(args)
 	if err != nil {
-
+		log.Panicln(err.Error())
 	}
 	resp, err := http.Post("http://localhost:"+strconv.Itoa(node.Port)+NEW_vC_PATH, "application/json", bytes.NewBuffer(json_body))
 	if err != nil {
+		log.Panicln(err.Error())
 		return false
 	}
 	defer resp.Body.Close()
@@ -231,14 +232,13 @@ func create_vc_with_entry_node(vc_id string, node *relay_node_struct) bool {
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-
+		log.Panicln(err.Error())
 	}
 	g_b_mod_p := new(big.Int)
 	g_b_mod_p.SetBytes(body)
 	key := new(big.Int)
 	key.Exp(g_b_mod_p, a, p)
 	node.Key = key
-	// log.Println(key)
 	log.Println("Entry node secret key : " + node.Key.String())
 	return true
 }
@@ -272,7 +272,7 @@ func extend_vc_with_middle_node(vc_id string, middle_node *relay_node_struct, en
 	}
 	args_json, err := json.Marshal(args)
 	if err != nil {
-
+		log.Panicln(err.Error())
 	}
 	final_payload := final_payload_struct{
 		Method: POST_METHOD,
@@ -281,7 +281,7 @@ func extend_vc_with_middle_node(vc_id string, middle_node *relay_node_struct, en
 	}
 	json_payload, err := json.Marshal(final_payload)
 	if err != nil {
-
+		log.Panicln(err.Error())
 	}
 
 	encrypted_node_1_payload := AES_encryptor(entry_node.Key.Bytes(), string(json_payload))
@@ -339,7 +339,7 @@ func extend_vc_with_exit_node(vc_id string, exit_node *relay_node_struct, middle
 	}
 	args_json, err := json.Marshal(args)
 	if err != nil {
-
+		log.Panicln(err.Error())
 	}
 	final_payload := final_payload_struct{
 		Method: POST_METHOD,
@@ -348,7 +348,7 @@ func extend_vc_with_exit_node(vc_id string, exit_node *relay_node_struct, middle
 	}
 	json_payload, err := json.Marshal(final_payload)
 	if err != nil {
-
+		log.Panicln(err.Error())
 	}
 
 	encrypted_node_2_payload := AES_encryptor(middle_node.Key.Bytes(), string(json_payload))
@@ -396,7 +396,7 @@ func extend_vc_with_exit_node(vc_id string, exit_node *relay_node_struct, middle
 	key := new(big.Int)
 	key.Exp(g_b_mod_p, a, p)
 	exit_node.Key = key
-	log.Println(key)
+	log.Println("Exit node secret key : " + exit_node.Key.String())
 	return true
 }
 
@@ -440,7 +440,6 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct
 	if err != nil {
 		return nil, err
 	}
-	// log.Println(string(json_node_1))
 
 	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.Entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
@@ -534,15 +533,15 @@ func AES_encryptor(key []byte, stringToEncrypt string) (encryptedString string) 
 
 	c, err := aes.NewCipher(key)
 	if err != nil {
-		panic(err.Error())
+		log.Panicln(err.Error())
 	}
 	aesGCM, err := cipher.NewGCM(c)
 	if err != nil {
-		panic(err.Error())
+		log.Panicln(err.Error())
 	}
 	nonce := make([]byte, aesGCM.NonceSize())
 	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
-		panic(err.Error())
+		log.Panicln(err.Error())
 	}
 	ciphertext := aesGCM.Seal(nonce, nonce, plaintext, nil)
 	return fmt.Sprintf("%x", ciphertext)
@@ -553,17 +552,17 @@ func AES_decryptor(key []byte, encryptedString string) (decryptedString string) 
 
 	c, err := aes.NewCipher(key)
 	if err != nil {
-		panic(err.Error())
+		log.Panicln(err.Error())
 	}
 	aesGCM, err := cipher.NewGCM(c)
 	if err != nil {
-		panic(err.Error())
+		log.Panicln(err.Error())
 	}
 	nonceSize := aesGCM.NonceSize()
 	nonce, ciphertext := enc[:nonceSize], enc[nonceSize:]
 	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		panic(err.Error())
+		log.Panicln(err.Error())
 	}
 	return fmt.Sprintf("%s", plaintext)
 }
