@@ -3,13 +3,13 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/aes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"math/big"
-
 	"net/http"
 	"os"
 	"strconv"
@@ -272,8 +272,9 @@ func extend_vc_with_middle_node(vc_id string, middle_node relay_node_struct, ent
 		log.Println(err)
 		return false
 	}
+	encrypted_node_1_json := AES_encryptor(entry_node.Key.Bytes(), json_node_1)
 	// log.Println(string(json_node_1))
-	resp, err := http.Post("http://localhost:"+strconv.Itoa(entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
+	resp, err := http.Post("http://localhost:"+strconv.Itoa(entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(encrypted_node_1_json))
 	if err != nil {
 		log.Println(err)
 		return false
@@ -287,8 +288,9 @@ func extend_vc_with_middle_node(vc_id string, middle_node relay_node_struct, ent
 	if err != nil {
 		return false
 	}
+	decrypted_body := AES_decryptor(entry_node.Key.Bytes(), body)
 	g_b_mod_p := new(big.Int)
-	g_b_mod_p.SetBytes(body)
+	g_b_mod_p.SetBytes(decrypted_body)
 	key := new(big.Int)
 	key.Exp(g_b_mod_p, a, p)
 	middle_node.Key = key
@@ -336,18 +338,20 @@ func extend_vc_with_exit_node(vc_id string, exit_node relay_node_struct, middle_
 		log.Println(err)
 		return false
 	}
+	encrypted_node_2_json := AES_encryptor(middle_node.Key.Bytes(), json_node_2)
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
-		Payload:      json_node_2,
+		Payload:      encrypted_node_2_json,
 	}
 	json_node_1, err := json.Marshal(node_1_payload)
 	if err != nil {
 		log.Println(err)
 		return false
 	}
+	encrypted_node_1_json := AES_encryptor(entry_node.Key.Bytes(), json_node_1)
 	// log.Println(string(json_node_1))
-	resp, err := http.Post("http://localhost:"+strconv.Itoa(entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
+	resp, err := http.Post("http://localhost:"+strconv.Itoa(entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(encrypted_node_1_json))
 	if err != nil {
 		log.Println(err)
 		return false
@@ -361,8 +365,10 @@ func extend_vc_with_exit_node(vc_id string, exit_node relay_node_struct, middle_
 	if err != nil {
 		return false
 	}
+	node_1_decrypted_body := AES_decryptor(entry_node.Key.Bytes(), body)
+	node_2_decrypted_body := AES_decryptor(middle_node.Key.Bytes(), node_1_decrypted_body)
 	g_b_mod_p := new(big.Int)
-	g_b_mod_p.SetBytes(body)
+	g_b_mod_p.SetBytes(node_2_decrypted_body)
 	key := new(big.Int)
 	key.Exp(g_b_mod_p, a, p)
 	exit_node.Key = key
@@ -388,27 +394,30 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct
 	if err != nil {
 		return nil, err
 	}
+	encrypted_node_3_json := AES_encryptor(vc_nodes.Exit_node.Key.Bytes(), json_node_3)
 	node_2_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
-		Payload:      json_node_3,
+		Payload:      encrypted_node_3_json,
 	}
 	json_node_2, err := json.Marshal(node_2_payload)
 	if err != nil {
 		return nil, err
 
 	}
+	encrypted_node_2_json := AES_encryptor(vc_nodes.Middle_node.Key.Bytes(), json_node_2)
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
-		Payload:      json_node_2,
+		Payload:      encrypted_node_2_json,
 	}
 	json_node_1, err := json.Marshal(node_1_payload)
 	if err != nil {
 		return nil, err
 	}
 	// log.Println(string(json_node_1))
-	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.Entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
+	encrypted_node_1_json := AES_encryptor(vc_nodes.Entry_node.Key.Bytes(), json_node_1)
+	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.Entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(encrypted_node_1_json))
 	if err != nil {
 		return nil, err
 	}
@@ -418,8 +427,11 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct
 	if err != nil {
 		return nil, err
 	}
+	node_1_decrypted_body := AES_decryptor(vc_nodes.Entry_node.Key.Bytes(), body)
+	node_2_decrypted_body := AES_decryptor(vc_nodes.Middle_node.Key.Bytes(), node_1_decrypted_body)
+	node_3_decrypted_body := AES_decryptor(vc_nodes.Exit_node.Key.Bytes(), node_2_decrypted_body)
 	var notifs []notification_struct
-	if err := json.Unmarshal(body, &notifs); err != nil {
+	if err := json.Unmarshal(node_3_decrypted_body, &notifs); err != nil {
 		return nil, err
 	}
 	return notifs, nil
@@ -455,28 +467,31 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 		log.Println("Cant marshal node_3_payload. err : " + err.Error())
 		return false
 	}
+	encrypted_node_3_json := AES_encryptor(vc_nodes.Exit_node.Key.Bytes(), json_node_3)
 	node_2_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
-		Payload:      json_node_3,
+		Payload:      encrypted_node_3_json,
 	}
 	json_node_2, err := json.Marshal(node_2_payload)
 	if err != nil {
 		log.Println("Cant marshal node_2_payload. err : " + err.Error())
 		return false
 	}
+	encrypted_node_2_json := AES_encryptor(vc_nodes.Middle_node.Key.Bytes(), json_node_2)
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
 		Payload_type: PAYLOAD_ENCRYPTED_TYPE,
-		Payload:      json_node_2,
+		Payload:      encrypted_node_2_json,
 	}
 	json_node_1, err := json.Marshal(node_1_payload)
 	if err != nil {
 		log.Println("Cant marshal node_1_payload. err : " + err.Error())
 		return false
 	}
+	encrypted_node_1_json := AES_encryptor(vc_nodes.Entry_node.Key.Bytes(), json_node_1)
 	// log.Println(string(json_node_1))
-	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.Entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
+	resp, err := http.Post("http://localhost:"+strconv.Itoa(vc_nodes.Entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(encrypted_node_1_json))
 	if err != nil {
 		log.Println("Cant post newNotif msg. err : " + err.Error())
 		return false
@@ -487,4 +502,26 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 		return false
 	}
 	return true
+}
+
+func AES_encryptor (key []byte, encryptee []byte) []byte{
+	cipher, err := aes.NewCipher(key)
+	if err != nil {
+		
+	}
+	encrypted_bytes := make([]byte, len(encryptee))
+	cipher.Encrypt(encrypted_bytes, encryptee)
+	return encrypted_bytes
+}
+
+func AES_decryptor (key []byte, encrypted_bytes []byte) []byte{
+	cipher, err := aes.NewCipher(key)
+	if err != nil {
+		
+	}
+
+	decrypted_bytes := make([]byte, len(encrypted_bytes))
+	cipher.Decrypt(decrypted_bytes, encrypted_bytes)
+
+	return decrypted_bytes
 }
