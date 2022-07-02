@@ -19,8 +19,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
-
-	// "gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -51,13 +50,13 @@ type node struct {
 }
 
 func (n *node) get_config(path string) *node {
-	// yaml_file, err := ioutil.ReadFile(path)
-	// if err != nil {
-	// 	log.Panicln(err.Error())
-	// }
-	// if err := yaml.Unmarshal(yaml_file, n); err != nil {
-	// 	log.Panicln(err.Error())
-	// }
+	yaml_file, err := ioutil.ReadFile(path)
+	if err != nil {
+		log.Panicln(err.Error())
+	}
+	if err := yaml.Unmarshal(yaml_file, n); err != nil {
+		log.Panicln(err.Error())
+	}
 
 	return n
 }
@@ -105,7 +104,7 @@ func main() {
 	}
 
 	log.Println("node started on port : " + strconv.Itoa(node_info.Port))
-	if notify_dir_im_alive(node_info) == false {
+	if !notify_dir_im_alive(node_info) {
 		log.Println("node " + node_info.Name + " can't notify node_directory")
 		return
 	}
@@ -266,6 +265,9 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 			}
 			defer res.Body.Close()
 			body, err := ioutil.ReadAll(res.Body)
+			if err != nil {
+				log.Panicln(err.Error())
+			}
 			log.Println("response status code of post request : " + res.Status)
 			encrypted_body := AES_encryptor(circuits[circuit_index].key.Bytes(), string(body))
 			w.WriteHeader(res.StatusCode)
