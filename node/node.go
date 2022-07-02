@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
@@ -15,8 +16,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
+
+	// "gopkg.in/yaml.v2"
 )
 
 const (
@@ -41,9 +45,21 @@ const (
 )
 
 type node struct {
-	name           string
-	port           int
-	directory_name string
+	Name           string `yaml:"name"`
+	Port           int    `yaml:"port"`
+	Directory_name string `yaml:"directory-node"`
+}
+
+func (n *node) get_config(path string) *node {
+	// yaml_file, err := ioutil.ReadFile(path)
+	// if err != nil {
+	// 	log.Panicln(err.Error())
+	// }
+	// if err := yaml.Unmarshal(yaml_file, n); err != nil {
+	// 	log.Panicln(err.Error())
+	// }
+
+	return n
 }
 
 type final_payload_struct struct {
@@ -75,36 +91,36 @@ type vc struct {
 var circuits = make([]vc, 0)
 
 func main() {
-	node_info := node{
-		name:           "node 1",
-		port:           11000,
-		directory_name: "9090",
-	}
+	log.Println("Enter path of the config.yaml file :")
+	scaner := bufio.NewScanner(os.Stdin)
+	scaner.Scan()
+	path := scaner.Text()
+	var node_info node
+	node_info.get_config(path)
 
-	l, err := net.Listen("tcp", ":"+strconv.Itoa(node_info.port))
+	l, err := net.Listen("tcp", ":"+strconv.Itoa(node_info.Port))
 	if err != nil {
-		log.Println("node " + node_info.name + " is unable to listen on port " + strconv.Itoa(node_info.port) + " err : " + err.Error())
+		log.Println("node " + node_info.Name + " is unable to listen on port " + strconv.Itoa(node_info.Port) + " err : " + err.Error())
 		return
 	}
 
-	log.Println("node started on port : " + strconv.Itoa(node_info.port))
+	log.Println("node started on port : " + strconv.Itoa(node_info.Port))
 	if notify_dir_im_alive(node_info) == false {
-		log.Println("node " + node_info.name + " can't notify node_directory")
-		return 
+		log.Println("node " + node_info.Name + " can't notify node_directory")
+		return
 	}
 
 	if err := http.Serve(l, http.HandlerFunc(handler)); err != nil {
 		notify_dir_im_dead(node_info)
 	}
-
 }
 
 func notify_dir_im_alive(node_info node) bool {
 	log.Println("Notifying directory_node I'm alive...")
-	resp, err := http.PostForm(DIR_URL+":"+node_info.directory_name+ADD_NODE_API_PATH,
-		url.Values{"name": {node_info.name}, "dir_node": {node_info.directory_name}, "port": {strconv.Itoa(node_info.port)}})
+	resp, err := http.PostForm(DIR_URL+":"+node_info.Directory_name+ADD_NODE_API_PATH,
+		url.Values{"name": {node_info.Name}, "dir_node": {node_info.Directory_name}, "port": {strconv.Itoa(node_info.Port)}})
 	if err != nil {
-		log.Println("node " + node_info.name + " can't send post req to notify dir_node. err :" + err.Error())
+		log.Println("node " + node_info.Name + " can't send post req to notify dir_node. err :" + err.Error())
 		return false
 	}
 	defer resp.Body.Close()
@@ -118,10 +134,10 @@ func notify_dir_im_alive(node_info node) bool {
 
 func notify_dir_im_dead(node_info node) {
 	log.Println("Notifying dir_node I'm dead...")
-	resp, err := http.PostForm(DIR_URL+":"+node_info.directory_name+REMOVE_NODE_API_PATH,
-		url.Values{"name": {node_info.name}})
+	resp, err := http.PostForm(DIR_URL+":"+node_info.Directory_name+REMOVE_NODE_API_PATH,
+		url.Values{"name": {node_info.Name}})
 	if err != nil {
-		log.Println("node " + node_info.name + "can't send remove req to dir_node. err : " + err.Error())
+		log.Println("node " + node_info.Name + "can't send remove req to dir_node. err : " + err.Error())
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
@@ -169,7 +185,7 @@ func create_new_vc(w http.ResponseWriter, r *http.Request) {
 	log.Println(key)
 	newVC := vc{
 		id:       request.VC_id,
-		pre_node: node{port: request.incomming_port},
+		pre_node: node{Port: request.incomming_port},
 		key:      key,
 	}
 	circuits = append(circuits, newVC)
@@ -223,7 +239,7 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 			}
 			for i := 0; i < len(circuits); i++ {
 				if circuits[i].id == request.VC_id {
-					circuits[i].next_node = node{port: port}
+					circuits[i].next_node = node{Port: port}
 					break
 				}
 			}
@@ -265,7 +281,7 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		resp, err := http.Post("http://localhost:"+strconv.Itoa(circuits[cir_index].next_node.port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer([]byte(decrypted_payload)))
+		resp, err := http.Post("http://localhost:"+strconv.Itoa(circuits[cir_index].next_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer([]byte(decrypted_payload)))
 		if err != nil {
 			log.Panicln(err.Error())
 		}
