@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 )
 
 type Notification struct {
@@ -19,10 +22,16 @@ const (
 )
 
 func main() {
+	log.Println("Notif server started...")
+	fmt.Println("Enter port number for notif server :")
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	port_number := scanner.Text()
+
 	http.HandleFunc("/", logger(handler))
 
-	log.Println("Notifs Server running on port 8080...")
-	log.Println(http.ListenAndServe(":8080", nil))
+	log.Println("Notifs Server running on port " + port_number + "...")
+	log.Println(http.ListenAndServe(":" + port_number, nil))
 }
 
 func logger (f http.HandlerFunc) http.HandlerFunc {
@@ -60,13 +69,6 @@ func handler(w http.ResponseWriter, r *http.Request){
 
 // * Create new Notif handler
 func create_new_notif(w http.ResponseWriter, r *http.Request){
-	// var author string = r.FormValue("author")
-	// var text string = r.FormValue("text")
-
-	// newNotif := Notification{
-	// 	Author: author,
-	// 	Text: text,
-	// }
 	var newNotif Notification
 	json_body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -74,7 +76,7 @@ func create_new_notif(w http.ResponseWriter, r *http.Request){
 	}
 	defer r.Body.Close()
 	if err := json.Unmarshal(json_body, &newNotif); err != nil {
-		
+		log.Panic(err.Error())
 	}
 	notification_list = append(notification_list, newNotif)
 	log.Println("New notif created : ",  newNotif)

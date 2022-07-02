@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	NOTIF_SERVER_GET_NOTIFS_URL       = "http://localhost:8080/notifs"
-	NOTIF_SERVER_CREATE_NEW_NOTIF_URL = "http://localhost:8080/notifs/add"
-	NODE_DIRECTORRY_GET_RELAYS_URL    = "http://localhost:9090/nodes"
-	NODE_DIRECTORRY_SELECT_RELAYS_URL = "http://localhost:9090/nodes/select"
+	LOCAL_HOST_URL = "http://localhost:"
+	NOTIF_SERVER_GET_NOTIFS_URL       = "/notifs"
+	NOTIF_SERVER_CREATE_NEW_NOTIF_URL = "/notifs/add"
+	NODE_DIRECTORRY_GET_RELAYS_URL    = "/nodes"
+	NODE_DIRECTORRY_SELECT_RELAYS_URL = "/nodes/select"
 
 	PAYLOAD_ENCRYPTED_TYPE = "ENC"
 	PAYLOAD_REQUEST_TYPE   = "REQ"
@@ -34,6 +35,9 @@ const (
 	NEW_vC_PATH      = "/new-vc"
 	FORWARD_API_PATH = "/forward"
 )
+
+var notif_server_port_number string
+var node_dir_port_number string
 
 type notification_struct struct {
 	Author string `json:"author"`
@@ -67,6 +71,15 @@ type vc_nodes_struct struct {
 
 func main() {
 	log.Println("Client started...")
+	
+	fmt.Println("Enter Notif server's port number :")
+	scaner := bufio.NewScanner(os.Stdin)
+	scaner.Scan()
+	notif_server_port_number = scaner.Text()
+	fmt.Println("Enter Node directory's port number :")
+	scaner.Scan()
+	node_dir_port_number = scaner.Text()
+
 	nodes := getRelayNodes()
 	fmt.Println("Choose three relay nodes :")
 	for i := 0; i < len(nodes); i++ {
@@ -143,7 +156,7 @@ func main() {
 
 func getRelayNodes() []relay_node_struct {
 	log.Println("Sending Get request to dir_node...")
-	resp, err := http.Get(NODE_DIRECTORRY_GET_RELAYS_URL)
+	resp, err := http.Get(LOCAL_HOST_URL + node_dir_port_number + NODE_DIRECTORRY_GET_RELAYS_URL)
 	if err != nil {
 
 	}
@@ -184,7 +197,7 @@ func sendSelectedNodesAndGetVCID(vc_nodes vc_nodes_struct) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	res, err := http.Post(NODE_DIRECTORRY_SELECT_RELAYS_URL, "application/json", bytes.NewBuffer(json_body))
+	res, err := http.Post(LOCAL_HOST_URL + node_dir_port_number + NODE_DIRECTORRY_SELECT_RELAYS_URL, "application/json", bytes.NewBuffer(json_body))
 	if err != nil {
 		return "", err
 	}
@@ -270,8 +283,7 @@ func extend_vc_with_middle_node(vc_id string, middle_node *relay_node_struct, en
 	if err != nil {
 
 	}
-	// log.Println(json_payload)
-	// log.Println(string(json_payload))
+
 	encrypted_node_1_payload := AES_encryptor(entry_node.Key.Bytes(), string(json_payload))
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -284,8 +296,6 @@ func extend_vc_with_middle_node(vc_id string, middle_node *relay_node_struct, en
 		return false
 	}
 
-	log.Println(string(encrypted_node_1_payload))
-	log.Println(json_node_1)
 	resp, err := http.Post("http://localhost:"+strconv.Itoa(entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
 		log.Println(err)
@@ -393,7 +403,7 @@ func extend_vc_with_exit_node(vc_id string, exit_node *relay_node_struct, middle
 func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct, error) {
 	final_payload := final_payload_struct{
 		Method: GET_METHOD,
-		URL:    NOTIF_SERVER_GET_NOTIFS_URL,
+		URL:    LOCAL_HOST_URL + notif_server_port_number + NOTIF_SERVER_GET_NOTIFS_URL,
 	}
 	json_payload, err := json.Marshal(final_payload)
 	if err != nil {
@@ -464,7 +474,7 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 	}
 	final_payload := final_payload_struct{
 		Method: POST_METHOD,
-		URL:    NOTIF_SERVER_CREATE_NEW_NOTIF_URL,
+		URL:    LOCAL_HOST_URL + notif_server_port_number + NOTIF_SERVER_CREATE_NEW_NOTIF_URL,
 		Body:   args_json,
 	}
 	json_payload, err := json.Marshal(final_payload)
