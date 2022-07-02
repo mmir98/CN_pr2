@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -41,7 +43,7 @@ type node struct {
 
 type vc struct {
 	id        string
-	key       string
+	key       *big.Int
 	pre_node  node
 	next_node node
 }
@@ -50,8 +52,8 @@ var circuits = make([]vc, 0)
 
 func main() {
 	node_info := node{
-		name:           "node 1",
-		port:           11000,
+		name:           "node 3",
+		port:           13000,
 		directory_name: "9090",
 	}
 
@@ -124,38 +126,40 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func create_new_vc(w http.ResponseWriter, r *http.Request) {
-	// vc_id := r.FormValue(VC_ID_FIELD)
 	json_body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer r.Body.Close()
-	log.Println(string(json_body))
+	// log.Println(string(json_body))
 	var request new_vc_struct
 	if err := json.Unmarshal(json_body, &request); err != nil {
 
 	}
-	
 	log.Println("creating new vc with vc_id : " + request.VC_id)
+	b, err := rand.Int(rand.Reader, request.P)
+	if err != nil {
+		
+	}
+	g_b_mod_p := new(big.Int)
+	g_b_mod_p.Exp(request.G, b, request.P)
 
-	// pre_node_port, err := strconv.Atoi(r.FormValue("incomming_port"))
-	// if err != nil {
-
-	// }
+	key := new(big.Int)
+	key.Exp(request.G_a_mod_p, b, request.P)
+	log.Println(key)
 	newVC := vc{
 		id:       request.VC_id,
 		pre_node: node{port: request.incomming_port},
+		key: key,
 	}
 	circuits = append(circuits, newVC)
 
 	w.WriteHeader(http.StatusCreated)
+	w.Write(g_b_mod_p.Bytes())
 }
 
 func forward_msg(w http.ResponseWriter, r *http.Request) {
-	// vc_id := r.FormValue(VC_ID_FIELD)
-	// payload_type := r.FormValue(PAYLOAD_TYPE_FIELD)
-
 	json_body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println(err)
@@ -185,7 +189,7 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 			})
 			port, err := strconv.Atoi(fields[2])
 			if err != nil {
-				
+
 			}
 			for i := 0; i < len(circuits); i++ {
 				if circuits[i].id == request.VC_id {
@@ -231,12 +235,12 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 		}
 		resp, err := http.Post("http://localhost:"+strconv.Itoa(circuits[cir_index].next_node.port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(request.Payload))
 		if err != nil {
-			
+
 		}
 		defer resp.Body.Close()
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			
+
 		}
 		w.WriteHeader(resp.StatusCode)
 		w.Write(body)
@@ -257,6 +261,9 @@ type payload_struct struct {
 }
 
 type new_vc_struct struct {
-	VC_id string
+	VC_id          string
 	incomming_port int
+	P              *big.Int
+	G              *big.Int
+	G_a_mod_p      *big.Int
 }

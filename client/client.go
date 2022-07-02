@@ -3,10 +3,13 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/big"
+
 	"net/http"
 	"os"
 	"strconv"
@@ -17,7 +20,7 @@ const (
 	NOTIF_SERVER_GET_NOTIFS_URL       = "http://localhost:8080/notifs"
 	NOTIF_SERVER_CREATE_NEW_NOTIF_URL = "http://localhost:8080/notifs/add"
 	NODE_DIRECTORRY_GET_RELAYS_URL    = "http://localhost:9090/nodes"
-	NODE_DIRECTORRY_SELECT_RELAYS_URL    = "http://localhost:9090/nodes/select"
+	NODE_DIRECTORRY_SELECT_RELAYS_URL = "http://localhost:9090/nodes/select"
 
 	PAYLOAD_ENCRYPTED_TYPE = "ENC"
 	PAYLOAD_REQUEST_TYPE   = "REQ"
@@ -47,15 +50,16 @@ type relay_payload_struct struct {
 }
 
 type relay_node_struct struct {
-	Name           string `json:"name"`
-	Port           int    `json:"port"`
-	Directory_node string `json:"dir_node"`
+	Name           string   `json:"name"`
+	Port           int      `json:"port"`
+	Directory_node string   `json:"dir_node"`
+	Key            *big.Int `json:"key"`
 }
 
 type vc_nodes_struct struct {
-	Entry_node  relay_node_struct	`json:"entry_node"`
-	Middle_node relay_node_struct	`json:"middle_node"`
-	Exit_node   relay_node_struct	`json:"exit_node"`
+	Entry_node  relay_node_struct `json:"entry_node"`
+	Middle_node relay_node_struct `json:"middle_node"`
+	Exit_node   relay_node_struct `json:"exit_node"`
 }
 
 func main() {
@@ -168,7 +172,7 @@ func getSelectedRelays(nodes []relay_node_struct) []relay_node_struct {
 	return n
 }
 
-func sendSelectedNodesAndGetVCID(vc_nodes vc_nodes_struct) (string, error){
+func sendSelectedNodesAndGetVCID(vc_nodes vc_nodes_struct) (string, error) {
 	json_body, err := json.Marshal(vc_nodes)
 	if err != nil {
 		return "", err
@@ -186,8 +190,12 @@ func sendSelectedNodesAndGetVCID(vc_nodes vc_nodes_struct) (string, error){
 }
 
 func create_vc_with_entry_node(vc_id string, node relay_node_struct) bool {
+	p, g, a, g_a_mod_p := initializeValuesForDiffi_Hellman()
 	args := new_vc_struct{
-		VC_id: vc_id,
+		VC_id:     vc_id,
+		P:         p,
+		G:         g,
+		G_A_MOD_P: g_a_mod_p,
 	}
 	json_body, err := json.Marshal(args)
 	if err != nil {
@@ -201,13 +209,45 @@ func create_vc_with_entry_node(vc_id string, node relay_node_struct) bool {
 	if resp.StatusCode != http.StatusCreated {
 		return false
 	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+
+	}
+	g_b_mod_p := new(big.Int)
+	g_b_mod_p.SetBytes(body)
+	key := new(big.Int)
+	key.Exp(g_b_mod_p, a, p)
+	node.Key = key
+	log.Println(key)
 	return true
 }
 
+func initializeValuesForDiffi_Hellman() (*big.Int, *big.Int, *big.Int, *big.Int) {
+	p, err := rand.Prime(rand.Reader, 64)
+	if err != nil {
+		log.Println("Cant create prime rand number. err : " + err.Error())
+	}
+	g, err := rand.Int(rand.Reader, p)
+	if err != nil {
+		log.Println("Cant create g (base) rand number. err : " + err.Error())
+	}
+	a, err := rand.Int(rand.Reader, p)
+	if err != nil {
+		log.Println("Cant create secret rand number. err : " + err.Error())
+	}
+	var g_a_mod_p *big.Int = new(big.Int)
+	g_a_mod_p.Exp(g, a, p)
+	return p, g, a, g_a_mod_p
+}
+
 func extend_vc_with_middle_node(vc_id string, middle_node relay_node_struct, entry_node relay_node_struct) bool {
+	p, g, a, g_a_mod_p := initializeValuesForDiffi_Hellman()
 	args := new_vc_struct{
 		VC_id:          vc_id,
 		Incomming_port: entry_node.Port,
+		P: p,
+		G: g,
+		G_A_MOD_P: g_a_mod_p,
 	}
 	args_json, err := json.Marshal(args)
 	if err != nil {
@@ -232,7 +272,7 @@ func extend_vc_with_middle_node(vc_id string, middle_node relay_node_struct, ent
 		log.Println(err)
 		return false
 	}
-	log.Println(string(json_node_1))
+	// log.Println(string(json_node_1))
 	resp, err := http.Post("http://localhost:"+strconv.Itoa(entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
 		log.Println(err)
@@ -240,18 +280,38 @@ func extend_vc_with_middle_node(vc_id string, middle_node relay_node_struct, ent
 	}
 	defer resp.Body.Close()
 	log.Println(resp.StatusCode)
+	if resp.StatusCode != http.StatusCreated {
+		return false
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+	g_b_mod_p := new(big.Int)
+	g_b_mod_p.SetBytes(body)
+	key := new(big.Int)
+	key.Exp(g_b_mod_p, a, p)
+	middle_node.Key = key
+	log.Println(key)
 	return true
 }
 
 type new_vc_struct struct {
-	VC_id          string `json:"vc_id"`
-	Incomming_port int    `json:"incomming_port"`
+	VC_id          string   `json:"vc_id"`
+	Incomming_port int      `json:"incomming_port"`
+	P              *big.Int `json:"p"`
+	G              *big.Int `json:"g"`
+	G_A_MOD_P      *big.Int `json:"g_a_mod_p"`
 }
 
 func extend_vc_with_exit_node(vc_id string, exit_node relay_node_struct, middle_node relay_node_struct, entry_node relay_node_struct) bool {
+	p, g, a, g_a_mod_p := initializeValuesForDiffi_Hellman()
 	args := new_vc_struct{
 		VC_id:          vc_id,
 		Incomming_port: middle_node.Port,
+		P: p,
+		G: g,
+		G_A_MOD_P: g_a_mod_p,
 	}
 	args_json, err := json.Marshal(args)
 	if err != nil {
@@ -286,7 +346,7 @@ func extend_vc_with_exit_node(vc_id string, exit_node relay_node_struct, middle_
 		log.Println(err)
 		return false
 	}
-	log.Println(string(json_node_1))
+	// log.Println(string(json_node_1))
 	resp, err := http.Post("http://localhost:"+strconv.Itoa(entry_node.Port)+FORWARD_API_PATH, "application/json", bytes.NewBuffer(json_node_1))
 	if err != nil {
 		log.Println(err)
@@ -294,6 +354,19 @@ func extend_vc_with_exit_node(vc_id string, exit_node relay_node_struct, middle_
 	}
 	defer resp.Body.Close()
 	log.Println(resp.StatusCode)
+	if resp.StatusCode != http.StatusCreated {
+		return false
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+	g_b_mod_p := new(big.Int)
+	g_b_mod_p.SetBytes(body)
+	key := new(big.Int)
+	key.Exp(g_b_mod_p, a, p)
+	exit_node.Key = key
+	log.Println(key)
 	return true
 }
 
