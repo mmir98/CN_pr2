@@ -98,18 +98,18 @@ func main() {
 	}
 	log.Println("New vc_id aquired : " + vc_id)
 	vc_w_entry := create_vc_with_entry_node(vc_id, &new_vc.Entry_node)
-	if vc_w_entry == false {
+	if !vc_w_entry {
 		log.Println("Cant create vc with entry node.")
 		return
 	}
 	vc_w_middle := extend_vc_with_middle_node(vc_id, &new_vc.Middle_node, new_vc.Entry_node)
-	if vc_w_middle == false {
+	if !vc_w_middle {
 		log.Println("Cant extend vc with middle node.")
 		return
 	}
 	log.Println("extending with middle node was successful")
 	vc_w_exit := extend_vc_with_exit_node(vc_id, &new_vc.Exit_node, &new_vc.Middle_node, new_vc.Entry_node)
-	if vc_w_exit == false {
+	if !vc_w_exit {
 		log.Println("Cant extend vc with exit node.")
 		return
 	}
@@ -143,7 +143,7 @@ func main() {
 			text := scanner.Text()
 			log.Println("new notif created :\n\tauthor : " + author + "\n\ttext : " + text)
 			res := createAndSendNewNotif(author, text, vc_id, new_vc)
-			if res == true {
+			if res {
 				log.Println("New notif has been added to notif_server's list.")
 			}
 		}
@@ -283,7 +283,7 @@ func extend_vc_with_middle_node(vc_id string, middle_node *relay_node_struct, en
 	if err != nil {
 		log.Panicln(err.Error())
 	}
-
+	log.Println("Encrypting msg with entry node's key...")
 	encrypted_node_1_payload := AES_encryptor(entry_node.Key.Bytes(), string(json_payload))
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -310,6 +310,7 @@ func extend_vc_with_middle_node(vc_id string, middle_node *relay_node_struct, en
 	if err != nil {
 		return false
 	}
+	log.Println("Decrypting msg with entry node's key...")
 	decrypted_body := AES_decryptor(entry_node.Key.Bytes(), string(body))
 	g_b_mod_p := new(big.Int)
 	g_b_mod_p.SetBytes([]byte(decrypted_body))
@@ -350,7 +351,7 @@ func extend_vc_with_exit_node(vc_id string, exit_node *relay_node_struct, middle
 	if err != nil {
 		log.Panicln(err.Error())
 	}
-
+	log.Println("Encrypting msg with middle node's key...")
 	encrypted_node_2_payload := AES_encryptor(middle_node.Key.Bytes(), string(json_payload))
 	node_2_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -362,6 +363,7 @@ func extend_vc_with_exit_node(vc_id string, exit_node *relay_node_struct, middle
 		log.Println(err)
 		return false
 	}
+	log.Println("Encrypting msg with entry node's key...")
 	encrypted_node_1_payload := AES_encryptor(entry_node.Key.Bytes(), string(json_node_2))
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -389,7 +391,9 @@ func extend_vc_with_exit_node(vc_id string, exit_node *relay_node_struct, middle
 	if err != nil {
 		return false
 	}
+	log.Println("Decrypting msg with entry node's key...")
 	node_1_decrypted_body := AES_decryptor(entry_node.Key.Bytes(), string(body))
+	log.Println("Decrypting msg with middle node's key...")
 	node_2_decrypted_body := AES_decryptor(middle_node.Key.Bytes(), string(node_1_decrypted_body))
 	g_b_mod_p := new(big.Int)
 	g_b_mod_p.SetBytes([]byte(node_2_decrypted_body))
@@ -409,6 +413,7 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct
 	if err != nil {
 		return nil, err
 	}
+	log.Println("Encrypting msg with exit node's key...")
 	encrypted_node_3_payload := AES_encryptor(vc_nodes.Exit_node.Key.Bytes(), string(json_payload))
 	node_3_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -419,6 +424,7 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct
 	if err != nil {
 		return nil, err
 	}
+	log.Println("Encrypting msg with middle node's key...")
 	encrypted_node_2_payload := AES_encryptor(vc_nodes.Middle_node.Key.Bytes(), string(json_node_3))
 	node_2_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -430,6 +436,7 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct
 		return nil, err
 
 	}
+	log.Println("Encrypting msg with entry node's key...")
 	encrypted_node_1_payload := AES_encryptor(vc_nodes.Entry_node.Key.Bytes(), string(json_node_2))
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -446,13 +453,16 @@ func getAllNotifs(vc_id string, vc_nodes vc_nodes_struct) ([]notification_struct
 		return nil, err
 	}
 	defer resp.Body.Close()
-	log.Println(resp.StatusCode)
+	log.Println("response status after Get req to get notifs : " + resp.Status)
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
+	log.Println("Decrypting msg with entry node's key...")
 	node_1_decrypted_body := AES_decryptor(vc_nodes.Entry_node.Key.Bytes(), string(body))
+	log.Println("Decrypting msg with middle node's key...")
 	node_2_decrypted_body := AES_decryptor(vc_nodes.Middle_node.Key.Bytes(), string(node_1_decrypted_body))
+	log.Println("Decrypting msg with exit node's key...")
 	node_3_decrypted_body := AES_decryptor(vc_nodes.Exit_node.Key.Bytes(), string(node_2_decrypted_body))
 	var notifs []notification_struct
 	if err := json.Unmarshal([]byte(node_3_decrypted_body), &notifs); err != nil {
@@ -481,6 +491,7 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 		log.Println("Cant marshal final_payload. err : " + err.Error())
 		return false
 	}
+	log.Println("Encrypting msg with exit node's key...")
 	encrypted_node_3_payload := AES_encryptor(vc_nodes.Exit_node.Key.Bytes(), string(json_payload))
 	node_3_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -492,6 +503,7 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 		log.Println("Cant marshal node_3_payload. err : " + err.Error())
 		return false
 	}
+	log.Println("Encrypting msg with middle node's key...")
 	encrypted_node_2_payload := AES_encryptor(vc_nodes.Middle_node.Key.Bytes(), string(json_node_3))
 	node_2_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -503,6 +515,7 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 		log.Println("Cant marshal node_2_payload. err : " + err.Error())
 		return false
 	}
+	log.Println("Encrypting msg with entry node's key...")
 	encrypted_node_1_payload := AES_encryptor(vc_nodes.Entry_node.Key.Bytes(), string(json_node_2))
 	node_1_payload := relay_payload_struct{
 		VC_ID:        vc_id,
@@ -529,6 +542,7 @@ func createAndSendNewNotif(author string, text string, vc_id string, vc_nodes vc
 }
 
 func AES_encryptor(key []byte, stringToEncrypt string) (encryptedString string) {
+	log.Println("Encrypting input...")
 	plaintext := []byte(stringToEncrypt)
 
 	c, err := aes.NewCipher(key)
@@ -548,6 +562,7 @@ func AES_encryptor(key []byte, stringToEncrypt string) (encryptedString string) 
 }
 
 func AES_decryptor(key []byte, encryptedString string) (decryptedString string) {
+	log.Println("Decrypting input...")
 	enc, _ := hex.DecodeString(encryptedString)
 
 	c, err := aes.NewCipher(key)
@@ -564,5 +579,5 @@ func AES_decryptor(key []byte, encryptedString string) (decryptedString string) 
 	if err != nil {
 		log.Panicln(err.Error())
 	}
-	return fmt.Sprintf("%s", plaintext)
+	return string(plaintext)
 }

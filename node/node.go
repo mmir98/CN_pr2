@@ -46,7 +46,7 @@ const (
 type node struct {
 	Name           string `yaml:"name"`
 	Port           int    `yaml:"port"`
-	Directory_name string `yaml:"directory-node"`
+	Directory_name string `yaml:"directory_node"`
 }
 
 func (n *node) get_config(path string) *node {
@@ -181,7 +181,7 @@ func create_new_vc(w http.ResponseWriter, r *http.Request) {
 
 	key := new(big.Int)
 	key.Exp(request.G_a_mod_p, b, request.P)
-	log.Println(key)
+	log.Println("Secret Key to be used : " + key.String())
 	newVC := vc{
 		id:       request.VC_id,
 		pre_node: node{Port: request.incomming_port},
@@ -213,7 +213,8 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	log.Println(request.Payload)
+	
+	// log.Println("payload :" + string(request.Payload))
 	decrypted_payload := AES_decryptor(circuits[circuit_index].key.Bytes(), string(request.Payload))
 	if err != nil {
 		log.Println(err)
@@ -253,7 +254,7 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				log.Panicln(err.Error())
 			}
-			log.Println(res.StatusCode)
+			log.Println("response status code of get request : " + res.Status)
 			encrypted_body := AES_encryptor(circuits[circuit_index].key.Bytes(), string(body))
 			w.WriteHeader(res.StatusCode)
 			w.Write([]byte(encrypted_body))
@@ -276,6 +277,7 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if request.Payload_type == PAYLOAD_ENCRYPTED_TYPE {
+		log.Println("Forwarding req to next node...")
 		var cir_index int
 		for i := 0; i < len(circuits); i++ {
 			if circuits[i].id == request.VC_id {
@@ -292,6 +294,7 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Panicln(err.Error())
 		}
+		log.Println("Response status of the forwarded msg : " + resp.Status)
 		encrypted_body := AES_encryptor(circuits[cir_index].key.Bytes(), string(body))
 		w.WriteHeader(resp.StatusCode)
 		w.Write([]byte(encrypted_body))
@@ -300,6 +303,7 @@ func forward_msg(w http.ResponseWriter, r *http.Request) {
 }
 
 func AES_encryptor(key []byte, stringToEncrypt string) (encryptedString string) {
+	log.Println("Encrypting input...")
 	plaintext := []byte(stringToEncrypt)
 
 	c, err := aes.NewCipher(key)
@@ -319,6 +323,7 @@ func AES_encryptor(key []byte, stringToEncrypt string) (encryptedString string) 
 }
 
 func AES_decryptor(key []byte, encryptedString string) (decryptedString string) {
+	log.Println("Decrypting input...")
 	enc, _ := hex.DecodeString(encryptedString)
 
 	c, err := aes.NewCipher(key)
